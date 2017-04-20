@@ -1,0 +1,106 @@
+From: wwg@coutts.UUCP (Warren Gay)
+Newsgroups: comp.os.cpm
+Subject: SuperBrain Lobotomies: #3 EPROM Rev 1
+Date: 26 Oct 94 03:48:43 GMT
+
+In  the last few posts, I covered the SuperBrain's hardware,
+then  the  EPROM  socket  lobotomy and lastly doing a "brain
+dump" -- ie. dumping the EPROM to file EPROM_SB.DAT.
+
+The  objective  after  having the EPROM socket normalized to
+Intel  pursuasion,  and after having the EPROM contents in a
+file  that  could be duplicated or disassembled, I was ready
+for my next lobotomy:
+
+I wanted to ween my SuperBrain off of 35 track drives.  Even
+if  I  gave it a double sided 40 track drive, it was too shy
+to venture out to tracks 35 - 39.  Disassembly was required.
+
+
+Patch revision 1:
+-----------------
+
+I  wish I could post the disassembled code here, but I don't
+want  to run afoul of copyright laws here.  However, I think
+code fragments are ok.  This helps our discussions.
+
+The first revision corrected the 35 track short coming.  The
+comments  are  of  course  my  own,  but each comment ";" is
+followed by  a hexidecimal address of the EPROM location for
+that  instruction,  which preceeds the comment itself.  Your
+EPROM milage  may  vary since several SuperBrain models were
+manufactured. However, I suspect they are all very similar.
+
+The original code was like this:
+
+        ...conversion of drive # to bits 4 - 2...
+;
+;       A HAS DRIVE BIT, IN BITS 5 THROUGH 1 (BIT 1 = A, BIT 2 = B ETC.)
+;
+L0064:  AND     01EH            ; 0064  MASK OUT DRIVE BIT
+        LD      (8803H),A       ; 0066  STUFF DRIVE BITS INTO 8803
+;
+        LD      A,(8805H)       ; 0069  TRACK NO. (IN ONES COMPLEMENT)
+        CPL                     ; 006C  TRACK NO. NOW POSITIVE
+        SBC     A,23H           ; 006D  MINUS 35 TRACKS
+        JP      M,L007E         ; 006F  JUMP IF FIRST SIDE
+;
+        CPL                     ; 0072  DIFF IN 1'S CPL NOW
+        LD      (8805H),A       ; 0073  MODIFY 8805 TO HOLD CYL NO. NOW
+;
+;       BIT 5 = HEAD SELECT (SELECT OTHER SIDE)
+;
+        LD      A,(8803H)       ; 0076
+        OR      20H             ; 0079  BIT 5 SELECTS OTHER SIDE
+        LD      (8803H),A       ; 007B  SAVE IN 8803
+L007E:  LD      A,(8803H)       ; 007E  GET CYL NO.
+        OR      01H             ; 0081  BIT 0 = 1 IN 8803 BYTE
+        OUT     (10H),A         ; 0083  SELECT DRIVE??
+
+Keep  in  mind  that  the  floppy disk controller Z80 has an
+inverting buffer between it and the FDC controller, so a lot
+of  things must  be  1's  complemented, which  really  makes
+things confusing to look at!
+
+The basic problem concerns the code fragment:
+
+        LD      A,(8805H)       ; 0069  TRACK NO. (IN ONES COMPLEMENT)
+        CPL                     ; 006C  TRACK NO. NOW POSITIVE
+        SBC     A,23H           ; 006D  MINUS 35 TRACKS
+        JP      M,L007E         ; 006F  JUMP IF FIRST SIDE
+
+Since  track  #35  is  really  Track 0, side 2 on a 35 track
+machine,  this code segment  takes a track # from 0 - 69 and
+converts it to a cylinder # (location 8805H) and side # (bit
+7  in  location  8803H).  To  change  to  a  40 track drive,
+requires the following simple modification:
+
+        LD      A,(8805H)       ; 0069  TRACK NO. (IN ONES COMPLEMENT)
+        CPL                     ; 006C  TRACK NO. NOW POSITIVE
+***     SBC     A,28H           ; 006D  MINUS 40 TRACKS
+        JP      M,L007E         ; 006F  JUMP IF FIRST SIDE
+
+Now  you can see why you cannot mix 'n match 35 and 40 track
+double  sided drives  on  a Superbrain.  This computation is
+used for all floppy drives connected to that controller.
+
+Single  sided  drives  are unaffected of course, because the
+subtraction  never plays a role in the cylinder computation.
+Branch  L007E is  always  taken in this case.  So a 35 track
+SINGLE sided drive could be put in drive B: for example.  Of
+course,  you  should  adjust  your  DPB in  SYSBIOS.ASM  and
+re-SYSGEN22 to reflect the differences in the drives.
+
+Well, I thought that would be enough. I was anxious to leave
+it  at that since my EPROM programming system is on its last
+legs,  and  every  EPROM  copy, patch and new burn in, is an
+adventure  all  by  itself. Not to mention, I don't like any
+one  of  my  5  friendly  cats  rubbing  my  leg  while  I'm
+un/plugging EPROMs in and out.
+
+However,  Rev  1 was not the whole story.  I'll report Patch
+Rev 2 in the next posting to keep this short.
+
+--------------------
+Warren W. Gay VE3WWG            John Coutts Library Services Limited            
+wwg@coutts.UUCP                 Niagara Falls, Ontario, Canada

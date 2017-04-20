@@ -1,0 +1,234 @@
+From: wwg@coutts.UUCP (Warren Gay)
+Newsgroups: comp.os.cpm
+Subject: SuperBrain Lobotomies: #4 Patch Rev 2
+Date: 26 Oct 94 03:51:10 GMT
+
+[Patching  the EPROM in the Intertec Superbrain model 30, so
+that  it  can use 40 track drives, double sided (formerly 35
+track)]
+
+Patch revision 1 (recap):
+-------------------------
+
+        LD      A,(8805H)       ; 0069  TRACK NO. (IN ONES COMPLEMENT)
+        CPL                     ; 006C  TRACK NO. NOW POSITIVE
+***     SBC     A,28H           ; 006D  MINUS 40 TRACKS (was 23H)
+        JP      M,L007E         ; 006F  JUMP IF FIRST SIDE
+
+Patch revision 2:
+-----------------
+
+After the success of Patch revision 1, my bubble was quickly
+burst when  FORMAT reported a "*** not ready Track 40 sector
+0  ***"  (or something  close  to that).  At first, I blamed
+EMJFMT.COM  since  FORMAT.COM did not complain.  (the reason
+was  later  found  to be that FORMAT.COM verifies after each
+track  is  laid  down (no  seek  reqd),  whereas  EMJFMT.COM
+verifies  each  track in a separate pass after the format is
+complete).
+
+Yet,  when  I PIPped files to the new 388k diskette (a great
+boost  in  size!),  everything  went  fine until  the  magic
+crossover to  side  2.  Again  I got the "*** not ready ***"
+message for Track 40, sector 0. However, all other writes to
+side 2 were ok.
+
+At first I blamed the format operation. I thought that maybe
+after  formatting track 39 (innermost side 1), and issuing a
+format track  40  command,  there  was  an intervening  seek
+involved-- a long one.
+
+Looking  at  the  Format track code, I did find that it WILL
+seek,  if not at  the  correct  cylinder no.  Here is a code
+fragment for the curious:
+
+;
+;       REQUEST TYPE 04 : FORMAT A TRACK
+;
+;
+;
+L02BC:  LD      A,0FFH          ; 02BC
+        LD      (8A0CH),A       ; 02BE  MARK AS A FORMAT REQUEST
+        LD      A,(08803H)      ; 02C1
+        AND     1EH             ; 02C4  MASK OUT DRIVE SELECT BITS
+        LD      (8806H),A       ; 02C6  SAVE IN 8806
+;
+        LD      BC,0FF01H       ; 02C9  SIDE 00, 01 BYTES
+        LD      (8A19H),BC      ; 02CC  SAVE FOR FORMAT OPERATION
+;
+        LD      A,(8803H)       ; 02D0  LOAD DRIVE SELECT ETC.
+        AND     20H             ; 02D3  HEAD SELECT BIT
+        JP      Z,02DFH         ; 02D5  JP IF NOT HEAD 1
+;
+;       HEAD=1
+;
+        LD      BC,0FE01H       ; 02D8  SIDE 01, 01 BYTES
+        LD      (8A19H),BC      ; 02DB  SAVE FOR FORMAT OPERATION
+;
+;       SEE IF A SEEK IS REQUIRED FIRST
+;
+L02DF:  LD      A,(8805H)       ; 02DF  SAVED CYL NO.
+        LD      D,A             ; 02E2  D=CYL NO.
+        IN      A,(09H)         ; 02E3  READ FDC CYL REGISTER
+        CP      D               ; 02E5  SAME?
+        JP      Z,002F6H        ; 02E6  JP IF SAME
+;
+;       NEED TO SEEK TO NEW CYL
+;
+        LD      A,D             ; 02E9  A = CYL NO.
+        OUT     (0BH),A         ; 02EA  WRITE REQD CYL TO FDC DATA REG.
+        LD      A,0E4H          ; 02EC  FDC CMD = 1B (SEEK+HDLD+30MS STEP)
+        OUT     (08H),A         ; 02EE  ISSUE FDC SEEK CMD
+        CALL    L027C           ; 02F0  WAIT FOR FDC COMP + STATUS IN A REG.
+        CALL    L02B0           ; 02F3  DELAY
+;
+L02F6   LD      E,0FEH          ; 02F6  SECTOR NO. (1 IN CPL FORM)
+        LD      H,0AH           ; 02F8  10 SECTORS (COUNTER)
+        LD      A,0BH           ; 02FA  FDC CMD = F4 (WRITE TRK + HD LD)
+        OUT     (08H),A         ; 02FC  START FORMAT (WRITE TRACK)
+
+From  this, you can see a seek command is issued as expected
+when a  cylinder change is made.  However, I thought perhaps
+that because  I've  now  added  5  more  cylinders, that the
+called DELAY routine was in need of a change:
+
+        OUT     (08H),A         ; 02EE  ISSUE FDC SEEK CMD
+        CALL    L027C           ; 02F0  WAIT FOR FDC COMP + STATUS IN A REG.
+???     CALL    L02B0           ; 02F3  DELAY
+
+Well, the delay routine was a surprise.  It only amounted to
+approx  63 ms  on a  4  Mhz Z80.  This  was approx twice the
+stepping rate of the drive (30ms steps are used). See below:
+
+;
+;       DELAY
+;
+L02B0:  LD      HL,1800H        ; 02B0
+L02B3:  PUSH    HL              ; 02B3
+        POP     HL              ; 02B4
+        DEC     HL              ; 02B5
+        LD      A,H             ; 02B6
+        OR      L               ; 02B7
+        JP      NZ,L02B3        ; 02B8
+        RET                     ; 02BB
+
+So, it turns out, that the format command is only capable of
+reliably   seeking   to   a  NEIGHBOURING  cylinder  on  the
+Superbrain.  Later  I  did  some hacking  in  FORMAT.COM  to
+discover  that  yes, they  issue  a SEEK HOME call, prior to
+formatting  the first cylinder of the second side.  The SEEK
+HOME call has more adequate checking for operation complete.
+
+Given  the  way  FORMAT.COM seeks HOME first, before issuing
+another FORMAT request, then this could not be the problem.
+
+To  make a long story short, it turns out that it was simply
+a  problem  with  SEEKS, when  reading or writing. I wrote a
+TEST40.ASM program  that simply tried to read each sector of
+each  track,  reporting problems if they arose. Again, Track
+40,  sector  0 was  a  problem - but only after seeking from
+track 39 (side 1).
+
+The  problem was then identified to be in the seek code used
+by read and write calls:
+
+;
+;       SEEK TO NEW TRACK
+;
+        LD      A,H             ; 013E  TRACK NO. (1'S COMPLEMENT)
+        OUT     (0BH),A         ; 013F  WRITE TRACK TO FDC DR
+        CALL    L03C8           ; 0141  SMALL DELAY
+        LD      A,0E4H          ; 0144  FDC CMD 1B: SEEK
+        OUT     (08H),A         ; 0146  INITIATE SEEK
+        CALL    L02B0           ; 0148  ~63 ms DELAYS
+        CALL    L02B0           ; 014B  63 ms
+        CALL    L02B0           ; 014E  63 ms
+        CALL    L02B0           ; 0151  63 ms
+        NOP                     ; 0152  (provision for more delays
+        NOP                     ; 0153  I expect)
+        NOP                     ; 0154
+        NOP                     ; 0155
+        NOP                     ; 0156
+        NOP                     ; 0157
+        NOP                     ; 0158
+        NOP                     ; 0159
+[note]  CALL    L027C           ; 015A  AWAIT FDC STATUS
+
+It  was  tempting  to  just  insert a delay call in the free
+space at locations 0151H to 0159H. But this would have added
+a  fixed  delay  to  ALL seeks, 1 cylinder or 39! Instead we
+look at the routine at 027CH:
+
+;
+;       WAIT UNTIL FDC BECOMES "READY" OR TIMEOUT.
+;
+;       RETURNS FDC STATUS IN A REG.
+;
+L027C:  LD      L,05H           ; 027C  (other calls come here too:
+L027E:  DEC     L               ; 027E  this provides some access delay time
+        JP      NZ,L027E        ; 027F  to make sure FDC chip hears us)
+;
+        LD      HL,0000H        ; 0282  (time out after 65536 loops)
+L0285:  DEC     HL              ; 0285
+        LD      A,H             ; 0286
+        OR      L               ; 0287
+        JP      NZ,L0293        ; 0288  BRANCH IF NOT TIMED OUT YET
+;
+L028B:  INC     A               ; 028B  A=01
+        RRCA                    ; 028C  A=80
+        LD      (8A0BH),A       ; 028D  FAILED STATUS RETURN
+        JP      L0222           ; 0290  EXIT
+;
+L0293:  IN      A,(08H)         ; 0293  READ FDC STATUS
+        CPL                     ; 0295  ONES COMPLEMENT
+        RRA                     ; 0296  MOVE STATUS TO CARRY FLAG
+        JP      C,L0285         ; JUMP TO CONTINUE COUNT DOWN OF HL
+;
+;       OPERATION COMPLETE
+;
+        RLA                     ; 029A  RESTORE STATUS BYTE
+        PUSH    AF              ; 029B  SAVE FDC STATUS BYTE ON STACK
+        LD      A,2FH           ; 029C  FDC CMD = D0
+        OUT     (08H),A         ; 029E  FORCE INTERRUPT (TERMINATE FDC OP)
+        POP     AF              ; 02A0  RESTORE STATUS BYTE
+        RET                     ; 02A1  RETURN FDC STATUS IN A REG.
+
+That's  a  fair  bit  of  code  for what it is really doing.
+Basically,  it  just  keeps  checking  the  FDC  status  for
+operation complete.  If the HL counter counts down to 0000H,
+it then assumes the operation has taken too long and returns
+a bad status (operation not complete).
+
+I  worked  out  the  timing of the code involved, for a long
+seek.  It  seems that as  coded,  HL  will  reach zero for a
+maximum of 38 seeks @ 30 ms steps.  They allowed a margin of
+approx 3 step times.  I decided then, that I needed approx a
+timeout to permit 43 steps, allowing a similar margin :)
+
+It turns out, this patch was fairly easy to add.  Change the
+instruction:
+
+        JP      C,L0285         ; 0297  JUMP TO CONTINUE COUNT DOWN OF HL
+
+to:     JP      C,L03CF         ; 0297  JUMP TO PATCH, IF STILL NOT COMPLETE
+
+then add:
+
+;
+;       ** REV 2 PATCH **
+;
+L03CF:  NEG                     ; 03CF-03D0 : WASTE 8 CLOCK CYCLES
+        JP      L0285           ; 03D1-03D3 : JUMP TO ORIGINAL BRANCH
+
+Locations  03CF to 03FF were free (0FFH).  After working out
+the  timeout  value, I  find  that  I in fact have a greater
+margin than 43 * 30 ms steps, but there is no harm in this--
+its close enough.
+
+This patch has been a total success. However, there was just
+one  more  thing that I wanted to change...  more on that in
+the next post!
+
+--------------------
+Warren W. Gay VE3WWG            John Coutts Library Services Limited            
+wwg@coutts.UUCP                 Niagara Falls, Ontario, Canada

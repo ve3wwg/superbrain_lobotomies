@@ -1,0 +1,245 @@
+From: wwg@coutts.UUCP (Warren Gay)
+Newsgroups: comp.os.cpm
+Subject: SuperBrain Lobotomies: #1 Reading the EPROM
+Date: 26 Oct 94 03:45:22 GMT
+
+When I first brought home my SuperBrains, some working, some
+lobotomized  beyond  repair,  I realized that I was going to
+want  to mokey with the EPROM. To do this safely, meant that
+I  needed the  code  backed up safely on floppies somewhere.
+After  capturing  them to  a  SuperBrain  floppy, I promptly
+transfered  a copy to my PC.  I would suggest that any other
+inclined mad scientist do the same for safe keeping.
+
+The  challenge  was  getting  at the EPROM! I could read the
+EPROM  on my Z80 S-100 board system (Multiflex)  that I keep
+for  programming  2716  EPROMs, but it had no disk drives. I
+could  transfer it via serial cable from the programmer, but
+I considered this too risky and complex for a "backup plan".
+A backup plan has to be fool proof.  There was no margin for
+error here.
+
+This  brought  me  back  to  the  SuperBrain.  It  should be
+possible  to  read it there- after all it booted up from the
+darned  thing.  However,  without  schematics,  I  was  left
+wondering  if  one  could still read the EPROM after booting
+up.
+
+What happens is that once the SuperBrain is booted, you have
+nothing  but a rich full 64K bytes of RAM for your Z80A host
+CPU to romp around in.  Obviously it didn't start out as all
+RAM,  but  was this swapping of EPROM with RAM irreversible?
+Apparently not.  By  dissassembling some startup code, I was
+able to discover how to swap in the EPROM, and copy it. Then
+swap it back out for RAM again.
+
+The SuperBrain User's Manual does state on page 2 of section
+3 that there is some bank switching being done:
+
+        0000H - 3FFFH   Bank 0 : RAM / EPROM
+        8000H - BFFFH   Bank 2 : HOST RAM 16K / uP2 RAM 1K
+                                 (HOST CPU = uP1)
+
+Rather  than  spoil all your fun, I've just posted code that
+will  capture your SuperBrain EPROM to file EPROM_SB.DAT.  I
+have put  enough  comments  in  the code for you to sort out
+what is happening there.
+
+To  access  the  1K  RAM of uP2, change the code slightly as
+follows: Change:
+
+        ...
+        MVI     A,05H
+        OUT     6BH             ; SET PC2 '1' FOR EPROM INTO BANK 0
+
+to read:
+        ...
+        MVI     A,08H           ; ACCESS UP2 1K RAM
+        OUT     6BH             ; MAPS INTO 8000H - 83FFH
+
+To put things back:
+
+        MVI     A,09H           ; MAP UP1 16K RAM BACK TO 8000H - BFFFH
+        OUT     6BH
+        MVI     A,0BH           ; SET PC5 (RELEASE BUS)
+        OUT     6BH             ; UP2'S BUS RELEASED
+
+The 1K UP2 RAM actually maps into bank 2 as:
+
+        8800H - 8BFFH
+
+More on UP2 RAM usage later.
+
+Here is the CAPT.ASM program:
+
+;
+;       Assembles under ASM22.COM, link with LOAD22.COM
+;
+;               A> ASM22 CAPT
+;               A> LOAD22 CAPT.HEX
+;               A> CAPT                 runs the program
+;
+;       IMPORTANT!!!
+;
+;       This code has been written for the Intertec Data Systems
+;       SuperBrain. Do NOT attempt to run this code on any other
+;       host, since unpredictable and potentially hazardous things
+;       could happen.  The author assumes no liability for this
+;       software.  What do you expect for free?  :-)
+;
+;       PURPOSE:
+;
+;       This program creates a file EPROM_SB.DAT on the current
+;       disk, and copies 2K of EPROM to it.
+;
+;       Written by Warren W. Gay VE3WWG
+;
+;       Re-edited for distribution: Thu Oct 20 22:57:04 1994
+;
+;       NOTES:
+;
+;       This program is not particularly bright- if file EPROM_SB.DAT
+;       already exists, the BDOS Create call will fail, and this program
+;       will give up the hunt. Simply "ERA EPROM_SB.DAT" and run this
+;       program again.
+;
+;       The basic procedure is to execute our program in 4000H + while
+;       we swap in bank 0 containing the EPROM (loc 0000H - 07FFH).
+;       Bank 0 affects locations 0000H - 3FFFH however!
+;
+;       Once Bank 0 is swapped to EPROM, we copy locations 0000H - 07FFH
+;       up to location 5000H for 2K.
+;
+;       Then we swap EPROM back out for our normal RAM bank 0.  After
+;       this interrupts are safe again.
+;
+;       The final step is to create EPROM_SB.DAT, and write 5000H to
+;       57FFH to this file and close it.
+;
+BDOS    EQU     0005H
+;
+;       ENTRY POINT
+;
+        ORG     0100H
+START   JMP     MAIN            ; RUN OUR CODE ABOVE BANK 0
+;
+;       OPERATING CODE
+;
+        ORG     4000H           ; START OF BANK 0
+MAIN    MVI     A,0AH           ; BUSRQ VIA PC5
+        OUT     6BH             ; SET BUSRQ (REQUEST UP2 SYSTEM BUS)
+;
+;       NOW WAIT FOR UP2 TO GIVE UP ITS SYSTEM BUS
+;
+WTGACK  IN      69H             ; READ PORT CONTAINING /BUSACK SIGNAL
+        RAL                     ; SHIFT /BUSACK INTO CARRY FLAG
+        JC      WTGACK          ; JUMP IF NOT BUSAK IS HIGH STILL
+;
+;       THE FLOPPY CONTROLLER Z80A HAS GIVEN US CONTROL OF ITS BUS
+;
+        DI                      ; DISABLE INTERRUPTS (CRT)
+        MVI     A,05H
+        OUT     6BH             ; SET PC2 '1' FOR EPROM INTO BANK 0
+;
+;       UP2'S EPROM NOW MAPPED IN:
+;
+;       0000H - 07FFH   2K EPROM
+;
+;       0800H - 3FFFH   GARBAGE (NO MEMORY)
+;
+        LXI     H,0             ; COPY FROM 0000H IN EPROM
+        LXI     D,COPY          ; COPY TO 5000H FOR CAPTURE
+        LXI     B,2048          ; CAPTURE 2K WORTH
+        DB      0EDH,0B0H       ; Z80 LDIR ; BLOCK COPY
+;
+;       NOW PUT THINGS BACK
+;
+        MVI     A,04H           ; RESET PC2 '0' : MAP RAM BACK 0000H - 3FFFH
+        OUT     6BH             ; DONE
+        MVI     A,0BH           ; SET PC5 (RELEASE BUS)
+        OUT     6BH             ; UP2'S BUS RELEASED
+        EI                      ; INTERRUPTS NOW SAFE
+;
+;       CREATE FILE: EPROM_SB.DAT
+;
+        MVI     C,16H           ; CREATE FILE
+        LXI     D,FCB
+        CALL    BDOS
+        CPI     0FFH
+        JZ      NOPE            ; CHECK FOR ERRORS
+;
+;       STARTING AT 5000H COPY TO CREATED FILE FOR 2K
+;
+WRTLP   LHLD    DPTR            ; DATA POINTER
+        XCHG                    ; XCHG DE/HL
+        LXI     H,128           ; 128 BYTES (TO BE WRITTEN)
+        DAD     D               ; HL = HL + DE (NEXT DMA ADDRESS)
+        SHLD    DPTR            ; SAVE FOR NEXT LOOP
+        MVI     C,1AH           ; SET DMA
+        CALL    BDOS            ; FROM DE (ORIGINAL DPTR LOC)
+;
+;       WRITE 128 BYTES SEQUENTIAL
+;
+        MVI     C,15H           ; WRITE SEQUENTIAL
+        LXI     D,FCB
+        CALL    BDOS
+;
+;       16 * 128 = 2K
+;
+        LDA     COUNT           ; GET LOOP COUNT
+        DCR     A
+        STA     COUNT
+        JNZ     WRTLP           ; LOOP 16 TIMES
+;
+;       CLOSE CAPTURE FILE
+;
+        MVI     C,10H           ; CLOSE FILE
+        LXI     D,FCB
+        CALL    BDOS
+;
+;       DISPLAY SUCCESS BANNER
+;
+        MVI     C,09H
+        LXI     D,OK
+        CALL    BDOS
+        JMP     0000H           ; EXIT
+;
+;       FILE CREATION ERROR
+;
+NOPE    MVI     C,09H
+        LXI     D,NPEMSG        ; DISPLAY CREATE ERROR
+        CALL    BDOS
+        JMP     0000H           ; EXIT
+;
+;       DATA AREAS
+;
+OK      DB      '2K EPROM COPIED TO EPROM_SB.DAT OK.',0DH,0AH,'$'
+NPEMSG  DB      'FAILED TO CREATE FILE/WRITE FILE.',07H,0DH,0AH,'$'
+COUNT   DB      16
+DPTR    DW      5000H
+;
+;       FILE CONTROL BLOCK FOR EPROM_SB.DAT
+;
+FCB     DB      0
+        DB      'EPROM_SBDAT'
+        DB      0,0,0,0,0,0,0,0,0,0,0,0
+        DB      0,0,0,0,0,0,0,0,0
+        DW      0,0
+;
+;       THIS AREA USED TO COPY 2K OF EPROM CODE
+;
+        ORG     5000H
+COPY    EQU     $
+        END     START
+
+The  astute  operator  will  notice some snow briefly on the
+screen while interrupts are disabled. That is because we are
+interfering  with  the  normal  CRT  interrupts  during  the
+lengthy LDIR copy.
+
+Now  that  we've  done  the X-ray of the brain, we can begin
+actual lobotomies on the patient! Stay tuned.
+
+--------------------
+Warren W. Gay VE3WWG            John Coutts Library Services Limited
+wwg@coutts.UUCP                 Niagara Falls, Ontario, Canada

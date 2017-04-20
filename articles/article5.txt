@@ -1,0 +1,491 @@
+From: wwg@coutts.UUCP (Warren Gay)
+Newsgroups: comp.os.cpm
+Subject: SuperBrain Lobotomies: #5 Patch Rev 3
+Date: 26 Oct 94 03:56:15 GMT
+
+Previously we patched the EPROM to allow 40 track operation.
+The  last  patch  fixed a timing bug that appears when going
+from 35 to 40 tracks. One annoying problem remained!
+
+I  have  seen  the  SuperBrain  models  listed in the 22DISK
+distribution  ZIP  file, but it never quite worked correctly
+for me.  When I would use it to list the disks directory for
+example, this is what I would get:
+
+----------------------------------------------------------------------
+CDIR Ver. 1.40-12-Oct-93, Copyright 1993, Sydex.  All rights reserved.          
+THIS IS AN UNREGISTERED COPY--SEE DOCUMENTATION FOR DETAILS.                    
+Superbrain Model 30 - 40 TRK DSDD 48 tpi 5.25" format                           
+                                                                                
+Error reading diskette A: (Cyl 2, Side 0, Sect 7):
+Sector not found
+Enter R - retry operation, A - abort program, I - ignore error [R]
+Error reading diskette A: (Cyl 2, Side 0, Sect 7):
+Sector not found
+Enter R - retry operation, A - abort program, I - ignore error [I]
+A0:64CPM5/5.COM    A0:64CPMWWG.COM    A0:ASM.COM         A0:BIOSWWG.ASM         
+A0:BIOSWWG2.ASM    A0:DDT.COM         A0:ED.COM          A0:EMJFMT.COM          
+A0:FMT35B.COM      A0:FMT40A.COM      A0:FMT40B.COM      A0:FTRK40.ASM          
+A0:LOAD.COM        A0:MORSE.COM       A0:NEW$BIOS.DOC    A0:PIP.COM             
+A0:STAT.COM        A0:SUBMIT.COM      A0:SYSGEN.COM      A0:TEST40.ASM          
+A0:TEST40.COM      A0:TEST40B.ASM     A0:TEST40B.COM     A0:XDIR.COM            
+A0:XSUB.COM                                                                     
+                                                                                
+238K free on drive A:                                                           
+                                                                                
+C:\>                                                                    
+----------------------------------------------------------------------
+
+I  found  that if I told it to Ignore the errors, I could at
+least get the directory displayed.  But as you would expect,
+this  was  not acceptable, nor a reliable method for copying
+files.
+
+I  wondered  how  it  could  be  that  its diskettes were so
+different  as to  cause this  kind of  grief.  Then  I tried
+ANADISK and it reported "deleted" sectors in places where it
+looked like it had not written yet. Hmmm, a clue!
+
+Before  we look at the basic loop that is used to format the
+sectors,  there  is a heavily used subroutine that should be
+examined here.  The routine is located at 038Eh in my EPROM,
+and henceforth named L038E in my listing fragments.
+
+This  routine  takes  a  byte count in the C register, and a
+data value  in B  to  be supplied  to  the  FDC (Floppy Disk
+Controller).  The byte in B  is  supplied to  the  FDC count
+times.  Note  that  the  value loaded into B is the INVERTED
+value  going  to  the FDC. This  is  because of an inverting
+buffer that was used between the Z80A and the FDC controller
+chip.  So  all  1  bits  become  0 and vice versa.
+
+;
+;       SUPPLIES FORMAT DATA BYTES:
+;
+;       B = DATA BYTE TO USE
+;       C = COUNT OF DATA BYTES
+;
+L038E:  IN      A,(08H)         ; 038E  READ FDC STATUS
+        RRA                     ; 0390
+        RRA                     ; 0391  PUT DATA REQ BIT INTO C FLAG
+        JP      C,L038E         ; 0392  LOOP UNTIL DRQ SET
+;
+        LD      A,B             ; 0395  GET INVERTED "DATA VALUE"
+        OUT     (0BH),A         ; 0396  WRITE TO FDC DATA REGISTER
+        DEC     C               ; 0398  DECREMENT COUNT
+        JP      NZ,L038E        ; 0399  LOOP UNTIL COUNT EXHAUSTED
+;
+        RET                     ; 039C
+
+Now lets look at the basic format loop.  The first part here
+contains a  few  instructions that set up the basic loop and
+initiate the format command to the FDC.
+
+        LD      E,0FEH          ; 02F6  SECTOR NO. (1 IN CPL FORM)
+        LD      H,0AH           ; 02F8  10 SECTORS (COUNTER)
+        LD      A,0BH           ; 02FA  FDC CMD = F4 (WRITE TRK + HD LD)
+        OUT     (08H),A         ; 02FC  START FORMAT (WRITE TRACK)
+;
+        LD      BC,0B128H       ; 02FE  B=B1, C=28 (40 4E BYTES)
+        CALL    L038E           ; 0301  GAP AFTER INDEX PULSE
+;
+;       LOOP FOR THE TRACK (EACH SECTOR)
+;
+;                               16 * 4E
+;                               10 * 00
+;
+L0304:  LD      BC,0B110H       ; 0304  B=B1, C=10 (16 4E BYTES)
+        CALL    L038E           ; 0307
+        LD      BC,0FF0AH       ; 030A  B=FF, C=0A (10 00 BYTES)
+        CALL    L038E           ; 030D
+;
+;       WRITE ADDRESS MARK PREFIX:      3 * A1
+;
+        LD      BC,00A03H       ; 0310  B=0A, C=03 (03 F5 BYTES)
+        CALL    L038E           ; 0313  (WRITE A1 IN MFM, PRESET CRC GEN)
+;
+;       WRITE ADDRESS MARK FOR ID FIELD:1 * FE
+;
+        LD      BC,00101H       ; 0316  B=01, C=01 (01 FE BYTES)
+        CALL    L038E           ; 0319  (WRITE FE IN MFM)
+;
+;       CYL NO. (TRACK) TO SECTOR
+;
+        LD      B,D             ; 031C  B=CYL NO. (CPL)
+        LD      C,01H           ; 031D  C=1 BYTES
+        CALL    L038E           ; 031F  (WRITE CYL NO.)
+;
+;       SIDE NUMBER SUPPLIED BY CALLER IN 8A1A, FOR (8A19) BYTES
+;       8A1A IS IN ONES COMPLEMENT FORM.
+;
+        LD      BC,(8A19H)      ; 0322  B=(8A1A), C=(8A19) BYTES
+        CALL    L038E           ; 0326
+;
+;       SECTOR NO. FROM E REG. (CPL)
+;
+        LD      B,E             ; 0329  B=FE (1 IN 1'S COMPLEMENT)
+        LD      C,01H           ; 032A  C=01 BYTES
+        CALL    L038E           ; 032C  (SECTOR NO. FROM REG E)
+;
+;                               1 * 02 (SETS 512 BYTE SECTORS)
+;
+        LD      BC,0FD01H       ; 032F  B=FD, C=01
+        CALL    L038E           ; 0332  (WRITE 1 02 BYTE=512 BYTE SECTOR)
+;
+;                               1 * F7 (GEN 2 CRC BYTES)
+;
+        LD      BC,00801H       ; 0335  B=08, C=01
+        CALL    L038E           ; 0338  (WRITE 1 F7 BYTE)
+;
+;                               22 * 4E (GAP)
+;
+        LD      BC,0B116H       ; 033B  B=B1, C=16
+        CALL    L038E           ; 033E  (WRITE 22 4E BYTES)
+;
+;                               12 * FF
+;
+        LD      BC,0FF0CH       ; 0341  B=FF, C=0C
+        CALL    L038E           ; 0344  (WRITE 12 00 BYTES)
+;
+;       3 A1 MARK PREFIX BYTES: 3 * F5  
+;
+        LD      BC,00A03H       ; 0347  B=0A, C=03
+        CALL    L038E           ; 034A  (WRITE 3 A1* BYTES)
+;                                       * see FDC notes
+;                               1 * FA  (PRESET CRC)
+;
+        LD      BC,00501H       ; 034D  B=05, C=01
+        CALL    L038E           ; 0350  (WRITE 1 FA* BYTE)
+;
+;                               512 * E5
+;
+        LD      BC,0E5FFH       ; 0353  B=E5, C=FF
+        CALL    L038E           ; 0356  (WRITE 255 E5 BYTES)
+        LD      C,0FFH          ; 0359  C=FF
+        CALL    L038E           ; 035B  (WRITE 255 E5 BYTES)
+        LD      C,002H          ; 035E  C=02
+        CALL    L038E           ; 0360  (WRITE 2 E5 BYTES)
+;
+;                               1 * F7  (GEN 2 CRC BYTES)
+;
+        LD      BC,00801H       ; 0363  B=08, C=01
+        CALL    L038E           ; 0366  (WRITE 1 F7 BYTE)
+;
+;       END OF SECTOR
+;
+        DEC     E               ; 0369  INC SECTOR (IN 1'S CPL)
+        DEC     H               ; 036A  DEC SECTOR COUNT
+        JP      NZ,L0304        ; 036B  LOOP FOR TRACK
+
+I'll  try to summarize the format details from the code here
+for sake of reference. It should only be used as a guide, as
+I have not thoroughly checked this summary:
+
+Reset
+CRC     Bytes   Value(Hex)      Description
+-----	-----	----------	---------------------------------------
+        40      4E              Initial gap after index pulse
+        16      4E              Inter-sector Gap-3 (at L0304)
+
+        10      00              Prefix bytes to ID Address Mark
+*        3      F5              For MFM writes 3 bytes of A1h [Note 1]
+*        1      FE              Write Address mark for ID field
+         1      cylinder#       Cylinder number in 1's complement form
+         1      side#           0 or 1 in 1's complement form [Note 2]
+         1      sector#         Sector number in 1's complement form
+         1      02              Selects 512 byte sectors
+         1      F7              Causes generation of 2 CRC bytes
+
+        22      4E              Write Gap-2 of 22 bytes
+
+        12      00              Prefix bytes to Data Address Mark
+*        3      F5              For MFM writes 3 bytes of A1h [Note 1]
+*        1      FA              Deleted data Address Mark [Note 3]
+        512     E5              512 data bytes  
+          1     F7              Generate 2 CRC bytes
+
+        end loop
+
+In  the  above,  the asterisks identify the points where the
+CRC registers are reset in the format operation.
+
+Note 1:
+
+In MFM mode, writing a data byte of F5 hex causes the FDC to
+write  one  A1 byte.  This  byte  (I think) is missing clock
+transitions between  bits  4 and  5. This is the recommended
+FDC-179X  procedure  prior to writing the ID address mark or
+the data address mark.
+
+Note 2:
+
+Since  both  B  and  C  are loaded from memory, I am lead to
+assume that C  was set up to receive a 1.  I was too lazy to
+verify this,  but it does seem the only reasonable value for
+this  count.  Note also the value for B is in 1's complement
+form to come out as 00 or 01 as the FDC chip sees it.
+
+Note 3:
+
+This is the trouble maker!
+
+
+With  the  possible  exception  of  the  gap byte counts and
+values,  the  format is pretty traditional in the MFM sense.
+The   difficulty   is   that  the  format  operation  writes
+"deleted-data" sectors instead of normal sectors.
+
+Identifying  written  sectors vs virgin sectors is of little
+value  to  us. The CP/M file system tracks the allocated and
+free  blocks of diskette space by other means.  So why do we
+need it? We don't.
+
+To  check out my theory, I wrote a program REWRITE.ASM.  All
+it did  was  read  every  sector on the floppy diskette, and
+write  it  back  out again. This  is a fairly time consuming
+task   on   a  floppy  diskette,  and  even  longer  on  the
+SuperBrain. However,  having  once done that, the previously
+wiley  diskette  was  perfectly readable on the IBM PC using
+22DISK.
+
+This  called  for  a  new  lobotomy.  Rather  than  FIX  the
+diskettes after each format operation, or digging out 22DISK
+to  format it  for  me, I  wanted a "proper" format from the
+start.  This turns out to be real simple. The code segment:
+
+        LD      BC,00501H       ; 034D  B=05, C=01
+        CALL    L038E           ; 0350  (WRITE 1 FA* BYTE)
+
+is  executed  just prior to writing out the 512 filler bytes
+of data for the sector. The FA hex is interpreted by the FDC
+on the  IBM  PC upon read as "deleted-data".  DOS interprets
+this   as  an  error,  even  though  the  data  is  actually
+successfully read.
+
+During  normal  sector writes, the equivalent of a FB hex is
+used  instead  to create a "non-deleted" data sector.  So by
+patching  location 034E from a value of 05h to 04h, we cause
+it  to  send  hex  FB to the FDC instead, during the format.
+This  creates a  normal data  sector  upon completion of the
+format.
+
+        LD      BC,00401H       ; 034D  B=04, C=01 ** PATCH REV 3 **
+        CALL    L038E           ; 0350  (WRITE 1 FB* BYTE)
+;                                       * FA=DELETED DATA/FB=NON-DELETED
+
+This  last  patch  has been tried and tested.  It makes life
+much simpler now.
+
+For your amusement, I've included REWRITE.ASM. I hesitate to
+do  this  because its dangerous.  If it reads a sector wrong
+(undetected  CRC  error  for  example)  the  error  will  be
+propagated  forever  by  the  following  write.   The  error
+handling  is not  that swift  either, but one write retry is
+attempted. The reader can improve upon that as an exercise.
+
+
+                              WARNING!
+
+             The author assumes NO LIABILITY for this code!
+
+           Rewrites in place can cause permanent loss of data!
+
+                        Use at YOUR OWN risk!
+
+        Please don't do this to your archival diskettes. They're too
+                          valuable to lose.
+
+
+                              WARNING!
+
+              This program will run on SuperBrains only!
+
+               It has NOT been tested on all SuperBrains.
+
+                       It is NOT CP/M portable.
+
+
+;       REWRITE.ASM     Warren W. Gay VE3WWG
+;       
+;       READS 40 TRACKS, 2 SIDES, REWRITING EVERY READ SECTOR
+;
+DISKIO  EQU     0DE33H          ; BIOS ENTRY POINT FOR DISK I/O
+BDOS    EQU     0005H           ; BDOS ENTRY POINT
+CR      EQU     0DH
+LF      EQU     0AH
+;
+        ORG     0100H
+START   LXI     D,STMSG         ; STARTUP MESSAGE
+        CALL    PMSGNL
+;
+LOOP    LDA     TRACK
+        CPI     80              ; DONE ALL 40 * 2 TRACKS?
+        JZ      DONE
+;
+        CALL    REWRITE         ; PERFORM THE TEST
+;
+        LDA     SECTR
+        INR     A               ; BUMP SECTOR NO.
+        STA     SECTR           ; SAVE SECTOR #
+        CPI     11              ; LAST SECTOR?
+        JNZ     LOOP
+;
+        MVI     A,01            ; SECTOR RESTARTS AT 1
+        STA     SECTR
+        LDA     TRACK           ; GET TRACK #
+        INR     A               ; BUMP TRACK #
+        STA     TRACK           ; SAVE IT
+        JMP     LOOP
+;
+DONE    LXI     D,XITMSG
+        CALL    PMSGNL
+        JMP     0
+;
+;       PERFORM REWRITE OF TRACK,SECTR
+;
+REWRITE LDA     TRACK           ; GET TRACK #
+        LXI     H,DTRK
+        CALL    B2DEC
+        LDA     SECTR           ; GET SECTOR #
+        LXI     H,DSECT
+        CALL    B2DEC
+        LXI     D,TMSG
+        CALL    PMSGNL          ; ISSUE MESSAGE
+;
+;       DO READ THEN WRITE
+;
+        LXI     B,0100H         ; READ SECTOR, DRIVE A:
+        LDA     TRACK
+        MOV     D,A             ; TRACK #
+        LDA     SECTR
+        MOV     E,A             ; SECTOR #
+        CALL    DISKIO
+        CPI     00H             ; SUCCESS?
+        JNZ     RDBAD           ; JUMP IF BAD READ
+        CALL    W40             ; DO A RE-WRITE
+        RET
+;
+RDBAD   STA     FDCSTS          ; SAVE STATUS FOR EXAMINATION BY DDT
+        LXI     D,WHOOPS
+        CALL    PMSGNL
+        RET
+;
+;       REWRITE READ DATA
+;
+W40     LXI     B,0200H         ; WRITE DATA
+        LDA     TRACK
+        MOV     D,A             ; SAME TRACK
+        LDA     SECTR
+        MOV     E,A             ; SAME SECTOR
+        CALL    DISKIO
+        CPI     00H             ; TEST STATUS
+        JNZ     BADWRIT
+        LXI     D,WROK
+        CALL    PMSGNL          ; ISSUE WRITE OK MESSAGE
+        RET
+;
+BADWRIT LXI     D,WRBAD         ; INDICATE TROUBLE
+        CALL    PMSGNL
+;
+        LXI     B,0200H         ; ONE MORE REWRITE
+        LDA     TRACK
+        MOV     D,A
+        LDA     SECTR
+        MOV     E,A
+        CALL    DISKIO
+;
+        CPI     00H             ; TEST STATUS RETURNED
+        JNZ     UNRECO
+;
+        LXI     D,RECO
+        CALL    PMSGNL          ; INDICATE ERROR RECOVERED
+        RET
+;
+UNRECO  LXI     D,NRECO         ; INDICATE UNRECOVERED ERROR!
+        CALL    PMSGNL
+        RET
+;
+;
+;       PRINT MSG @ DE, WITH CRLF AT END
+;
+PMSGNL  CALL    PMSG
+        CALL    PCRLF
+        RET
+;
+;       PRINT MSG @ DE
+;
+PMSG    MVI     C,09H
+        CALL    BDOS
+        RET
+;
+;       PRINT CRLF
+;
+PCRLF   LXI     D,CRLF
+        MVI     C,09H
+        CALL    BDOS
+        RET
+;
+;       CONVERT BINARY VALUE IN A TO DECIMAL:
+;
+;       B = MOST SIGNIFICANT ASCII DIGIT
+;       A = LEAST SIGNIFICANT ASCII DIGIT
+;       HL = PTR TO STORE TWO ASCII DIGITS
+;
+;       THIS ROUTINE FAILS IF GIVEN VALUES > 99 (BECAUSE I CHEATED)
+;
+B2DEC   MVI     B,'0'           ; STARTING VALUE FOR MSD
+LP      STC
+        CMC
+        SBI     10              ; MINUS TEN
+        JM      NM
+        INR     B               ; BUMP MSD UP ONE ASCII VALUE
+        JMP     LP              ; LOOP UNTIL MINUS
+NM      ADI     10              ; RESTORE REMAINDER
+        ADI     '0'             ; A NOW HOLDS LSD
+        INX     H
+        MOV     M,A
+        DCX     H
+        MOV     M,B             ; STORE MSD
+        RET
+;
+;       DATA AREA
+;
+STMSG   DB      'REWRITE BEGINS: $'
+TMSG    DB      'TRACK '
+DTRK    DB      '__, SECTOR '
+DSECT   DB      '--...$'
+CRLF    DB      0AH,0DH,'$'
+XITMSG  DB      'REWRITE COMPLETE.$'
+WHOOPS  DB      'BAD STATUS RETURNED.$'
+WROK    DB      'REWROTE OK.$'
+WRBAD   DB      'WRITE FAILURE...$'
+RECO    DB      'WRITE RETRY SUCCEEDED.$'
+NRECO   DB      'WRITE FAILURE IS UNRECOVERED!$'
+;
+TRACK   DB      0               ; TRACK NO.
+SECTR   DB      1               ; SECTOR NO.
+FDCSTS  DB      0               ; BAD FDC STATUS
+        END     START
+
+In the above, the SuperBrain's (hidden) BIOS is copying read
+data to a 512 byte buffer HSTBUF.  The writes in REWRITE.ASM
+are  then  just taken  back  out  from the same HSTBUF.  The
+following is taken from SYSBIOS.ASM as supplied by Intertec:
+
+
+OFFSET  EQU     9400H   ;OFFSET FOR 64K = 9400H
+                        ;OFFSET FOR 32K = 1400H
+HSTBUF  EQU     6200H+OFFSET    ;DMA DISK BUFFER
+
+For  64K SuperBrains, this means HSTBUF is at location F600h
+and for  32K SuperBrains its 7600h.  I have verified this by
+disassembling  some  of  the  hidden  BIOS  above the  given
+SYSBIOS.ASM.
+
+Well  that's about it for this article.  In the next article
+I'll pass  along some other useful SuperBrain info, and some
+parting thoughts on future lobotomy possibilities.
+
+--------------------
+Warren W. Gay VE3WWG            John Coutts Library Services Limited            
+wwg@coutts.UUCP                 Niagara Falls, Ontario, Canada

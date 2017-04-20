@@ -1,0 +1,191 @@
+From: wwg@coutts.UUCP (Warren Gay)
+Newsgroups: comp.os.cpm
+Subject: SuperBrain Lobotomies: #2 The EPROM Socket
+Date: 26 Oct 94 03:47:12 GMT
+
+In  the  first  of  this series (#0), I covered the hardware
+aspects of the Intertec Data Systems SuperBrain.  In article
+#1 we discovered how to read the EPROM socket and copy it to
+a CP/M file.
+
+Before  scrambling  the  brain  of  our  patient, we need to
+address the patients EPROM socket itself. Its very important
+to  SuperBrain  owners to  know about.  For the general CP/M
+audience,  you may prefer to skip to the end of this article
+instead.
+
+2716 (2K) EPROM Socket:
+-----------------------
+
+Not  all  2716's  are made alike.  I found out the hard way,
+even though I did know this fact a long time ago.  My memory
+has suffered some parity errors I guess.
+
+SuperBrains have come out with both the Intel 2716 EPROM and
+the   Texas   Instruments   pursuasion.    THESE   ARE   NOT
+INTERCHANGABLE! Please read on.
+
+Which Have I Got?
+-----------------
+
+Turn   on  you  SuperBrain  with  the  cover  off.   With  a
+multimeter,  put the  Black  (-)  lead  on pin  #12, and the
+positive  (+) meter  lead  on  pin  24.  You should read the
+normal +5 Volts. Good.
+
+Take  the  +ve  lead off of pin #24 and move it to EPROM pin
+#21  while keeping  your  black  lead  on pin 12, for all of
+these tests.
+
+NOTE!  BE  VERY CAREFUL *NOT* TO SHORT TWO NEIGHBOURING PINS
+WITH  THE  METER  PROBES!!!! Neighbouring pins don't like -5
+Volts nor +12 Volts!
+
+If pin #21 reads -5 Volts (ie. negative 5 volts), then it is
+of the Texas  Instruments  pursuasion.  This can  be further
+verified by testing pin #19 and it should read +12V if its a
+TI  chip. For Intel 2716's, the voltages on #21 and #19 will
+be somewhere between 0 and +5 volts.
+
+
+The First Lobotomy:
+-------------------
+
+Well,  I  learned the hard way that my Superbrain was of the
+Texas Instrument sway.  This really bugged me, since my half
+baked EPROM burner can't really cope with these without some
+modifications that I was unwilling to make. Furthermore, who
+needs these triple supply chips anyhow? I didn't have any on
+hand that I could trust.
+
+Fortunately,  I had the foresight to save the EPROM contents
+to disk first. But I really didn't think I was going to need
+it. Live and learn.
+
+Since  I  had the EPROM data on diskette, all I needed was a
+new EPROM burned for it -- an Intel 2716 flavour! To do this
+would require one of two approaches-- I tried them both.
+
+
+(1) The HACKED Intel EPROM:
+---------------------------
+
+When I first lost my EPROM I was almost in dispair. However,
+I  got  "even" by  cooking up a real ugly hack, that I don't
+recommend to anyone. I first burnt in the EPROM. I then bent
+back  pins 19,20  and 21 so they stuck out the side, and did
+not go into the socket.
+
+I  soldered (carefully!!!)  a jumper on the top of the EPROM
+from  pin  12 (Gnd)  to pin 20 (/output_enable).  I soldered
+another  jumper from pin 21 (Vpp)  to pin 24 (Vcc=+5V).  The
+final touch was to put a wire from pin 19 (A10) and plug the
+wire into free socket pin 20 (the Texas Instruments A10).  A
+real ugly and  unsafe  hack,  but it proved that the rest of
+the  CPU was still alive and functional.  (note I was lucky:
+normally I'd expect  to lose several EPROMS trying to solder
+those wires on etc. due to electrostatic discharges).
+
+
+Intel vs Texas Instruments:
+---------------------------
+
+To  make  the  above  distinctions  clearer,  its time for a
+picture:
+
+        Intel:          T.I.
+        2716            2716
+        __              __
+        24|-            24|-
+          |-              |-
+          |-              |-
+        21|- Vpp        21|- -5V        All other pins identical.
+        20|- /OE        20|- A10
+        19|- A10        19|- +12V
+          |-              |-
+
+Note  the TI chip does not have an /OE function.  When going
+to  an Intel  2716  chip in the same hardware, means that we
+can  tie   /OE  to  ground  and  leave  the  output  enabled
+permanently.
+
+
+(2) EPROM Socket Lobotomy:
+--------------------------
+
+Since  I knew that EPROM changes were forthcoming, the above
+hack  was not  a  permanent solution.  It would  be  a EPROM
+programming nightmare to hack this way each time.
+
+Before  planning your wiring changes, I'd recommend that you
+remove the original EPROM socket first. If you can spare the
+$$$,  put  a low profile ZIF socket in, or even one of those
+economy  ZIF  sockets.  I  didn't put a ZIF in, but I wish I
+did. The only thing to watch out for is that you have enough
+clearance with the cabinet cover.  There isn't a lot of room
+to spare. Keep to low profile sockets.
+
+However, remove the socket. I snipped the top and the bottom
+horizontal  runners  with  wire  cutters. I was then able to
+carefully pull each half up and off the PC board. Then using
+a  soldering  iron,  remove the  socket recepticals one at a
+time. No special tools required.
+
+Once the socket is fully removed, then go over each pad with
+a soldering iron and a solder sucker. I used the desoldering
+tool  available  at  RS that  allows  you  to load and use a
+trigger. Your mileage may vary.
+
+Having removed the socket, you are ready to cut traces.
+
+The wiring changes required are quite simple. Disconnect the
+-5V and  the  +12V  totally  from  the  socket-- they're not
+needed for an Intel 2716.  Since A10 is on the wrong pin for
+Intel  2716's, it  too  has  to  be  scratched away from the
+socket.
+
+Make sure there are no solder shorts remaining.  Make doubly
+sure that you  scratched  away  the  -5V and +12V traces. Be
+real careful to scratch the correct traces!  Its easy to get
+wrong upside down and backwards. Don't get lazy there!
+
+The  -5V  and  +12V traces were on the bottom side of the PC
+board  and were thick.  The  A10  trace was on top of the PC
+board and went underneath the original socket plastic.
+
+[Short  cut:  If  you don't like the trouble of removing the
+socket you  can  probably take this short cut. I removed the
+socket because  I could  not  be sure of all the traces with
+the plastic obscuring my view.  However, on my PC board, the
+-5V and +12V can be scratched from the bottom easily without
+socket  removal.  They don't go anywhere else from under the
+socket. Then  on  the  top  side,  scratch what might be A10
+traces, and  use a multimeter to find the trace for sure (it
+goes  to pin #20 in the socket).  Having located A10, it too
+can be scratched without socket removal. However...  your PC
+board might be different! Lazyman beware!]
+
+Having   cut   the  3  traces  correctly,  install  the  new
+replacement  socket. Use  wire  wrap  wire for the following
+mods:
+
+The  next  thing  is  to wire socket pin 21 (Vpp)  to pin 24
+(+5V). Socket pin 20 (/OE) has to be grounded, so I wired it
+to  pin 12  (Gnd).  The final alteration  has to wire pin 19
+(A10)  to the A10 strip on the motherboard. I found that the
+most  convenient place to pick this up from was from pin #40
+(A10) on  the  [leftmost]  Z80A  CPU, which is very near the
+socket.  If  you scratch  the original A10 trace, and use an
+ohmmeter,  you should find continuity with pin 40 of the CPU
+chip, if you want to double check this.
+
+Having  done  this  lobotomy,  the  only  left is to put the
+normal Intel 2716  EPROM  into  the  socket and hope for the
+best.  If you put a ZIF socket in, you can perform all kinds
+of midnight lobotomies!
+
+The next articles will deal with EPROM code patches.
+
+--------------------
+Warren W. Gay VE3WWG            John Coutts Library Services Limited            
+wwg@coutts.UUCP                 Niagara Falls, Ontario, Canada

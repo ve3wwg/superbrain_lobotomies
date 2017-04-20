@@ -1,0 +1,276 @@
+From: wwg@coutts.UUCP (Warren Gay)
+Newsgroups: comp.os.cpm
+Subject: SuperBrain Lobotomies: #0 Introduction
+Date: 26 Oct 94 03:43:13 GMT
+
+A  few  Superbrain  people  out there seemingly have enjoyed
+reading  about   my   "lobotomies"   and   "musings"  on  my
+Superbrain.  They have encouraged  me to  share more of this
+information in this news group, so here it comes:
+
+I  think to do this subject justice, I need to back up a bit
+and  to  introduce  the Superbrain (for those who don't have
+one),   and   to  go  over  the  reasons  behind  my  recent
+lobotomies.
+
+Finally,  I  need  to state for the record, that my Intertec
+Data  Systems'  Superbrain  model 30, is probably unusual in
+the Superbrain line. At least what I have found in the EPROM
+suggests  that, especially  when  comparing my findings with
+other owners.  We'll see if any other Superbrain people come
+out of the closet on this fact :)
+
+Some  of  you might want to skip the hardware stuff here.  I
+present  some of my reasons for the lobotomies at the end of
+this post.  See "Reasons for Operating".
+
+Superbrain Hardware:
+--------------------
+
+The "Specs":
+
+  CPU           Twin Z80A's with 4 Mhz clock. One Z80A performs
+                all CP/M and screen tasks. The second Z80A does
+                all floppy disk I/O.
+
+        NOTE:   The manual states "The second Z80A is 'down
+                loaded' by the host to execute disk I/O". This
+                appears to be a white lie. In fact as far as I
+                can tell from the EPROM code, both processors
+                actually run the same initial code. However, due
+                to startup tests, one ends up doing whats in the
+                upper 1K of the 2716 EPROM (2K), and the other
+                (floppy CPU) does whats in the lower 1K.  However,
+                it appears that the EPROM is actually "owned" by
+                the floppy CPU (I'll just refer to it as the disk
+                controller, not to be confused with the FDC1791B-02
+                floppy controller chip also owned by this
+                CPU). The "Host" Z80A can access this rom by bank
+                switching, which is what happens at boot time.
+
+Interrupts:     From the manual "all are vectored and reserved".
+                This is something else I intend to persue someday,
+                if I get time to write a Superbrain ANSI terminal
+                emulator. (Interrupts for serial I/O).
+
+Floppy Disk:    From the manual "Over 350K (700K + on SuperBrain QD)
+                total bytes of unformatted data on two double density
+                drives."
+
+  Capacity:     This seems to be based upon 35 track drives:
+
+                10 sectors * 512 bytes * 35 tracks * 2 sides = 350K
+
+                2 * 350K drives = 700K
+
+  Data transfer:
+                250K bits/second
+
+  Avg access time:
+                250 ms. 35 ms track-to-track
+
+  Media:        5.25 inch
+
+  Disk Rotation:
+                300 RPM
+
+Memory:         32K (64K on SuperBrain QD) bytes dynamic RAM. The
+                optional 32K is socketed.
+
+  Static RAM:   1K, used by the controller CPU for disk I/O and
+                controller <=> host data transfers. (Its actually
+                owned by the disk controller CPU).
+
+  ROM:          2K bytes, for power on "bootstrapping". Besides this
+                official use, the disk controller runs its code
+                from it exclusively.
+
+CRT:            12 inch, P4 phosphor.
+
+  chips:        CRT 5037 (video controller)
+                CRT 8002B VDAC (Char + attribute generator)
+
+  format:       24 lines * 80 characters
+  font:         5x7 matrix on 7x10 field (hard on eyes in lowercase!)
+  bandwidth:    15 Mhz
+  transfer:     From the manual "Memory mapped at 38 kilobaud".
+
+Communications: Serial transmission of data at rates up to 9600 bps.
+
+  Main Interface:
+                RS-232C asynchronous. Synchronous interface optional.
+                (Synchronous is something else I want to investigate)
+
+  Aux Interface:
+                Simplified RS-232C asynchronous. Synchronous interface
+                optional.
+
+  Z80A Data Bus:
+                "40-pin Data Bus connector". This is NOT a S-100
+                connector, but rather a nice simple interface, with
+                a BI-directional data bus.
+
+                The manual later states that no memory should be
+                added via this bus, due to the way the 64K address
+                space has already been accounted for on the
+                "motherboard".  Only I/O, or BUSRQ/BUSACK activity
+                should be attempted via this bus.
+
+Disk Operating System:
+                CP/M 2.2
+
+(I've skipped some of the other fluffy specs like key-rollover features,
+weight and dimensions)
+
+
+I/O Ports:
+----------
+
+This  list  comes from some of my old notes I made some time
+ago. Its  not  fresh  in  my mind at the moment, but this is
+information that other "owners" would want to know. I'll put
+"?" beside some of the stuff that I'm less sure about:
+
+        Port    Description  (? = not sure of its use)
+        ---     ----------------------------------------
+        01H     CRT Row Start (?)  (CRT 5037)
+        02H     CRT Top of Page (?)  (CRT 5037)
+        03H     CRT Cursor (?)  (CRT 5037)
+        40H     Aux Port "data"  (8251 Asynchronous & Synchronous)
+        41H     Aux Port "status" (8251)
+        48H     Interrupt Reset (?)
+        50H     Keyboard input character
+        58H     Main Port "data" (8251 Asynchronous & Synchronous)
+        59H     Main Port "status" (8251)
+        60H     Baud rate generator (Western Digital BR-1941)
+        68H     Parallel Port A (8255)
+        69H     Parallel Port B (8255)
+        6AH     Parallel Port C (8255)
+        6BH     Parallel "Control" (8255)
+
+Serial Comms Dipswitch Settings:
+--------------------------------
+
+There  is a small 5 position dip switch on the "motherboard"
+that  configures  the MAIN COM PORT for the Superbrain.  The
+manual states:
+
+"For normal use these switches should be set as follows:
+
+        1-OFF, 2-OFF, 3-ON, 4-ON, 5-OFF"
+
+Switches:
+---------
+
+1 -     External TX Clock to MAIN USART - Originates from pin #15 on
+        MAIN RS232 connector at rear of terminal.
+
+2 -     External RX Clock to MAIN USART - Originates from pin #17 on
+        MAIN RS232 connector at rear of terminal.
+
+3 -     Internal  TX  Clock  to  MAIN  USART  -  When on this swtich
+        enables  the  builtin  baud  rate generator (Western Digital
+        BR-1941).  NOTE:  When  this  switch  is  in the ON position
+        switch 1 MUST be in the OFF position.
+
+4 -     Internal RX Clock to MAIN USART - When this switch is in the
+        ON position switch 2 MUST be in the OFF position.
+
+5 -     Internal  baud  clock to MAIN port - This switch enables the
+        transmission  of the  internal  baud  rate clock to the main
+        RS232  port - this signal will appear on pin #24 of the main
+        port  when this switch is in the ON position. If this switch
+        is  not used, it should be left in the OFF position to avoid
+        any possible conflict with external RS232 signals.
+
+
+Reasons for Operating:
+----------------------
+
+This   whole   adventure  began  when  I  viewed  my  ailing
+SuperBrain  sitting and collecting dust.  I couldn't bear to
+part  with  it, but I couldn't bear to use it either! It had
+two  35 track SINGLE sided floppy drives in it that severely
+cramps  any  programmers  style!  (after all, its bad enough
+that floppies are painfully slow!)
+
+I also had another reason. I had earlier blew up my EPROM by
+trying "brain  transplants" into  another  Superbrain that I
+had  at the  time.  Unfortunately,  the  EPROM sockets  were
+different  in each! They  both used 2716 EPROMS, but one was
+of Intel flavour, and the other was of the Texas Instruments
+pursuation!  Texas Instruments  BTW,  decided to manufacture
+2716's  with +12V (pin 19)  and -5V (pin 21).  Everyone else
+went with the Intel design with just +5V. More on this in my
+next post.
+
+Anyhow,  experiments  soon  showed that sticking in a double
+sided  drive worked, but was still short some extra capacity
+that existed on the drive.  It turns out, that my Superbrain
+QD model 30 only allows for 35 tracks.  It rubs me the wrong
+way  when I get less using hardware that is capable of more.
+This simply would not do.
+
+The  gain  was significant enough to drive me to investigate
+this. Admittedly a lot of this was also driven by curiosity.
+The  gain  to  be had was 10 sectors times 512 bytes times 5
+cylinders times 2 sides.  This amounted to an additional 50K
+bytes  worth.  Not  a lot mind you, but its significant when
+you stuck with only two floppy disk drives.
+
+Lazyman's Upgrade:
+------------------
+
+For   those   too   squeamish  to  do  lobotomies  on  their
+Superbrain, you  can get  some  additional gain by adding 40
+track double sided drives, with only a BIOS mod. Here's how:
+
+If  you  have  40 track drives in the Superbrain already, or
+put some in,  then you  can get at least 5 more TRACKS worth
+out of  your  floppy drive by a BIOS mod only (assuming your
+EPROM code is not MUCH different than mine).
+
+Assuming  the  Superbrain is currently only using 35 tracks,
+then  what you do is you let the EPROM continue to think its
+got  35 tracks a side.  So when you CP/M asks to write track
+35, it ends up writing cylinder 0, side 2 instead, just like
+normal (cyl = track # - 35: 35 - 35 => cyl 0). However, most
+of  us  would continue  to tell  CP/M  to  stop  at track 69
+(Cylinder 34 on side 2).  Apart from interchangability, why?
+
+Instead  you tell your BIOS in the DPB that you have 35 + 35
++ 5 tracks! While you still loose out on the 5 tracks on the
+first  side, you GAIN the extra 5 tracks on the second side.
+This is 25K bytes worth.
+
+This  will  work  on your Superbrain because your EPROM code
+will say:
+
+
+        IF ( TRACK - 35 < 0 ) {
+                TRACK -= 35;    /* Convert TRACK to CYLINDER No. */
+                HEAD(2);
+                }
+        else    HEAD(1);
+
+        SEEK(TRACK);
+
+
+So if you feed the disk controlling CPU a track number of 74
+say:
+
+        Cylinder on side 2 = 74 - 35 => 39
+
+Cylinder 39 is the last track on side 2.
+
+NOTE:   This kind of use of the drive is guaranteed not to be
+        portable, and is likely also to cause grief with software
+        like 22DISK.  True lobotomies are better :)
+
+Before  we  do  any  lobotomies, lets get ourselves a backup
+copy of the EPROM. So in the next post, we'll look at how to
+grab a copy to disk.
+
+--------------------
+Warren W. Gay VE3WWG            John Coutts Library Services Limited            
+wwg@coutts.UUCP                 Niagara Falls, Ontario, Canada

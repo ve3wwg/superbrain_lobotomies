@@ -1,0 +1,434 @@
+From: wwg@coutts.UUCP (Warren Gay)
+Newsgroups: comp.os.cpm
+Subject: SuperBrain Lobotomies: #6 Undocumented BIOS
+Date: 26 Oct 94 03:58:35 GMT
+
+Since  I  had  to go through all the first half of the EPROM
+anyhow,  I  thought  it  was  high  time  I  documented  the
+undocumented   for  my  own  personal  use.   However,  this
+information  is quite useful to any SuperBrain owner, and so
+I'd like to pass this information along to you.
+
+Undocumented BIOS Disk Functions:
+---------------------------------
+
+Entry Point:    DE33h           64K SuperBrain
+                5E33h           32k SuperBrain (unverified)
+
+Register:       Description:
+
+        B       Request Type:
+                00 - FDC Restore (seek Home) [note 1]
+                01 - Read Sector [note 4]
+                02 - Write Data (Non-deleted) [note 4]
+                03 - Write Data (Deleted data) [note 4]
+                04 - Format Track [note 2]
+                05 - Drive Select [note 3]
+
+        C       Drive Number:
+                00 - A:
+                01 - B:
+                02 - C:
+                03 - D:
+
+        D       Track Number:   0 - 79 [note 5]
+        E       Sector Number:  1 - 10 [note 6]
+
+Note 1: This appears to ignore registers D and E.
+
+Note 2: You MUST perform long seeks prior to this call.  A seek step
+        of  1  cylinder  will be performed successfully if required.
+        However,  going  from  track 39 to track 40, translates to a
+        seek from cylinder 39 (side 0)  to cylinder 0 (side 2). This
+        seek will cause the format operation to fail.
+
+Note 3: This  is  uncertain.  It  appears to permit selection of the
+        drive without  any  other  action.  I am not  certain of its
+        usefulness yet.
+
+Note 4: Reads  and  writes  pass data between the controller and the
+        host  Z80A  from  the 512  byte buffer HSTBUF (F600h for 64K
+        Superbrains,  7600h  for  32K models).  The hidden BIOS code
+        then  swaps  memory  banks  and  copies  HSTBUF  to the disk
+        controller's  1K  RAM starting at location 8808H.  See below
+        for other key locations.
+
+Note 5: The  track  number  range  0-79  is  in  decimal, and varies
+        according  to  SuperBrain  model.  This is  the range that I
+        wound  up  with when  incorporating  the  previously covered
+        lobotomies on  the  EPROM.  I  expect that later models also
+        permitted  0-79 as  double  sided floppy drives  became  the
+        norm.  Note that tracks 40-79 represent side 2.
+
+Note 6: The  sector number range 1-10 is in decimal.  This range can
+        be  expanded if the floppy is formatted by the IBM PC, or an
+        additional lobotomy is performed on the EPROM.
+
+
+Hidden BIOS and Controller Secrets:
+-----------------------------------
+
+The  hidden  BIOS uses the disk controller's 1K RAM as shown
+below.  The information presented comes from my disassembled
+comments of the EPROM. All locations are hexidecimal.
+
+8802    REQUEST TYPE:
+        00 - FDC RESTORE (SEEK HOME)
+        01 - DISK READ
+        02 - WRITE DATA (NON DELETED)
+        03 - WRITE DATA (DELETED)
+        04 - FORMAT REQUEST
+        05 - DRIVE SELECT?
+8803    DRIVE NO. IN MASK 03H
+        [after EPROM code digests Drive No., its interpretation changes:]
+
+        DRIVE # IN BIT MAP FORM. BIT 1=A, 2=B, 3=C, 4=D.
+        BIT 5 IS HEAD SELECT, BIT5=1 IS SIDE 2
+
+8804    SECTOR NO. FOR REQUEST  (IN 1'S CPL FORM)
+8805    TRACK NO.               (IN 1'S CPL FORM)
+8806    DRIVE NO. IN BIT MAPPED FORM (COPY OF 8803)
+8807    NON ZERO WHEN HOST Z80 REQUESTS CTL Z80 SERVICE (POLL BYTE)
+
+8808    DATA BUFFER START
+8A07    END OF 512 BYTE DATA BUFFER
+
+8A08    19 FOR READ,    00 FOR WRITE    (SOME KIND OF CODE STEERING FLAG)
+8A09    00 FOR READ,    05 FOR WRITE    (SOME KIND OF CODE STEERING FLAG)
+8A0A    ANOTHER CODE STEERING BYTE
+        00 - FOR READ
+        01 - FOR WRITE
+8A0B    APPEARS TO CONTAIN FDC STATUS REG BITS (SOME BITS MASKED OUT)
+8A0C    FLAG BYTE??
+        00 - OTHER
+        FF - FORMAT REQUEST TYPE 04 PROCESSING
+8A0D    05 ??  WE'RE NOT QUITE SURE!
+8A0E    00 ??
+8A0F    BUFFER FOR READING ID FIELDS FOR SECTORS (160 BYTES??)
+8A19    COUNT OF BYTES AT 8A1A [1]
+8A1A    BUFFER [1]
+        [1] FOR FORMAT OPERATION, 8A19 HAD COUNT OF 01
+            WHILE 8A1A HAD FF FOR SIDE 00 (1'S COMPLEMENT) 
+            OR FE FOR SIDE 01 (1'S COMPLEMENT).
+8A1B    BOTTOM OF CALL STACK
+8BFF    TOP OF CALL STACK
+
+I/O PORTS FOR CONTROLLER Z80:
+
+        READ            WRITE           FDC = SINGLE DENSITY (MFM)
+08      FDC STATUS      FDC CMD
+09      FDC TRACK REG   FDC TRACK REG
+0A      FDC SECTOR REG  FDC SECTOR REG
+0B      FDC DATA REG    FDC DATA REG
+
+10      SELECTS DRIVE (BITS 4,3,2,1), HEAD(BIT5), BIT0=?
+
+Some Key locations in Hidden BIOS:
+----------------------------------
+
+(64K SuperBrain assumed)
+
+DE33    JMP     E40F
+
+E40F    JMP     E8DB
+
+E8DB    SHLD    E458            ; start of disk I/O services routine
+        ...
+E8E2+3  MOV     A,B
+        CPI     ...             ; test of function requested
+
+E8FD    ...                     ; Start of function 02/03 code (I think)
+E912    ...                     ; Start of function 00 code (Home)
+E91E    ...                     ; Start of read sector code (fun 01)
+E92F    ...                     ; Setup a request routine
+E934    ...                     ; Delay
+E93E    ...                     ; Wait for controller to complete
+E94D    ...                     ; Store request in controller's mailbox
+E95E    ...                     ; Kick start controller
+E967    ...                     ; Copy 512 bytes of data to controller RAM
+E979    ...                     ; Copy 512 bytes of controller RAM to F600
+E98B    ...                     ; Get FDC status byte at 8A0B in 1K RAM
+E997    ...                     ; Get control of controller's bus
+E9A6    ...                     ; Relinquish controller's bus
+
+E9AF    ...                     ; Start of a BIOS buffer of some sort???
+
+22DISK Definition for the Lobotomized 40 Tracker:
+=================================================
+
+This  is the definition I use for my modified SuperBrain.  The 5.25 inch
+diskette with 2 sides, and 40 tracks gives a total of 388k bytes.
+
+This assumes your BIOS to have DPB for:
+---------------------------------------
+
+DPB0    DW      40      ; 40 LOGICAL 128 BYTE SECTORS/TRACK (DRV A:)
+        DB      4       ; BLOCK SHIFT
+        DB      15      ; BLOCK MASK
+        DB      1       ; EXTENT MASK
+        DW      194     ; LAST AU NO.
+        DW      63      ; 64 DIRECTORY ENTRIES
+        DB      1000$0000B      ; BIT MAP
+        DB      0000$0000B      ; BIT MAP
+        DW      16      ; DIR CHECK BUFFER SIZE
+        DW      2       ; TRACKS BEFORE DIRECTORY
+
+22DISK Definition:
+------------------
+
+BEGIN SUPW  Superbrain Model 30 - 40 TRK DSDD 48 tpi 5.25"
+DENSITY MFM ,LOW 
+COMPLEMENT              <======== Note the inversion necessary!
+CYLINDERS 40
+SIDES 2
+SECTORS 10,512
+SIDE1 0 1,3,5,7,9,2,4,6,8,10
+SIDE2 1 1,3,5,7,9,2,4,6,8,10
+ORDER CYLINDERS 
+BSH 4 BLM 15 EXM 1 DSM 194 DRM 63 AL0 080H AL1 0 OFS 2
+END 
+
+
+Parting Muse #1:
+----------------
+
+One  limitation  that exists in the EPROM that bothers me is
+the hard coded limit on the number of sectors per track. The
+limit only exists in the format code. If it were possible to
+use a drive with more sectors (like high density 3.5 inch?),
+you'd want to change this.  I'm not sure this is possible or
+likely--   its   just   a   limitation.  I  hate  unecessary
+limitations.
+
+This  can  be fixed with yet another lobotomy.  I'm not sure
+I'll bother  with  it yet, unless I get bored.  However, for
+the adventurous, this is what I'd suggest.
+
+The basic format-a-track call is as follows:
+
+        LDA     TRACK
+        MOV     D,A
+        LXI     B,0400H         ; Format track on A:
+        CALL    0DE33H          ; CALL DISKIO
+
+What I'd like to see is this changed to:
+
+        LDA     TRACK
+        MOV     D,A
+        MVI     E,SPT           ; Sectors per track
+        LXI     B,0400H         ; Format track on A:
+        CALL    0DE33H          ; CALL DISKIO
+
+Ie,  in place of the sector number which is ignored for this
+call,  load  the  number of sectors to format. In the EPROM,
+the following code would need change:
+
+        LD      E,0FEH          ; 02F6  SECTOR NO. (1 IN CPL FORM)
+*       LD      H,0AH           ; 02F8  10 SECTORS (COUNTER)
+        LD      A,0BH           ; 02FA  FDC CMD = F4 (WRITE TRK + HD LD)
+        OUT     (08H),A         ; 02FC  START FORMAT (WRITE TRACK)
+
+Instead we want to acheive something like:
+
+        LD      E,0FEH          ; 02F6  SECTOR NO. (1 IN CPL FORM)
+***     LD      A,(08804H)      ; 02F8  GET SECTORS TO FORMAT
+***     LD      H,A
+        LD      A,0BH           ;       FDC CMD = F4 (WRITE TRK + HD LD)
+        OUT     (08H),A         ;       START FORMAT (WRITE TRACK)
+
+However the insertion of those instructions is not possible.
+A patch to jump to some free space in the EPROM is necessary
+and  a  return  to location  02FAh is the simplest way to do
+this. You get the idea.
+
+Muse #2:
+--------
+
+I  toyed  with  the  idea  of  using the upper 2 bits of the
+sector number to indicate sector size as well. However a few
+things get in the way at this point:
+
+        1..     only have 1K RAM for reading/writing, of which
+                a lot of it is allocated to stack and control
+                purposes. This leaves 512 bytes/sector at a max.
+                Smaller sectors are only desirable for compatibility
+                with older diskettes.
+
+        2..     Format code difficulties. Though not impossible,
+                the patch is more involved. See below:
+
+;
+;                               512 * E5
+;
+        LD      BC,0E5FFH       ; 0353  B=E5, C=FF
+        CALL    L038E           ; 0356  (WRITE 255 E5 BYTES)
+        LD      C,0FFH          ; 0359  C=FF
+        CALL    L038E           ; 035B  (WRITE 255 E5 BYTES)
+        LD      C,002H          ; 035E  C=02
+        CALL    L038E           ; 0360  (WRITE 2 E5 BYTES)
+
+The  above  EPROM code uses 3 L038E calls to write 512 bytes
+of  formatted  sector  data out. Many read/write alterations
+would  also be necessary.  It does not seem worth the effort
+to allow different sector sizes.
+
+Muse #3:
+--------
+
+I  have  considered  one  last  possibility, to increase the
+controller's  flexibility. I'm not sure what the bottom line
+practicality would  be,  but its fun thinking  about  it  at
+least.
+
+I  have  considered  a  DISKIO  function  number  06h.  This
+function would  take the 512  bytes of data that is normally
+written  to  disk,  and  execute  it  inside the  controller
+instead.  This  would be  useful  (I think)  for  performing
+controller  diagnostics  and  other  strange  functions  not
+otherwise permitted in the rigid confines of the EPROM.
+
+Examples of use might be to perform controller 1K RAM tests,
+and  FDC controller tests.  I could also see using this as a
+way to  read  and pass back diskette ID information, without
+the data.  This could tell the Host CPU what sector size was
+used, and what sector numbers were found etc. These types of
+services are not currently provided to the Host Z80A.
+
+The  code  in  the  buffer would have to be assembled to run
+starting at location 8808h in the Z80A controller RAM.  As a
+side  benefit,  you  already get 4 parameter bytes passed to
+the code:
+
+8802    REQUEST TYPE (Register B)
+8803    DRIVE NO. IN MASK 03H (Register C - 2 bits munged into mapped bits)
+
+        DRIVE # IN BIT MAP FORM. BIT 1=A, 2=B, 3=C, 4=D.
+        BIT 5 IS HEAD SELECT, BIT5=1 IS SIDE 2
+
+8804    SECTOR NO. (Register E)
+8805    TRACK NO. (Register D)
+
+Of  course  there's  nothing to prevent the passing of other
+data  values as part of the code either.
+
+This  last musing is one that I plan to follow up on as time
+permits  this  winter. The one  other  reason  I  want  this
+facility is  so that  I  can  try  FDC  experiments with the
+hardware that already exists in the SuperBrain.
+
+
+Creating New SuperBrain Boot Image With New BIOS:
+-------------------------------------------------
+
+This  actually  could be a mini-series in itself, but I felt
+that even  a summary might help here.  This *might* not work
+for  all  SuperBrains, but I believe it should work for most
+64K SuperBrains out there:
+
+1.      Modify  your  SYSBIOS.ASM  to suit.  Note that there
+        exists more  BIOS  code  above this module that they
+        don't give you source for.  Be careful not to exceed
+	the posted code limit or the SuperBrain police  will
+	get you.
+
+2.      Assemble it.
+
+        A> ASM SYSBIOS
+
+3.      A> STAT 64CPM5/5.COM            ; How many K bytes?
+
+        Recs Bytes Ext Acc
+        96   12K     1 R/W A:64CPM5/5.COM
+
+        ( 12 * 1024 ) / 256 => 48 pages
+
+                or
+
+        96 recs / 2 => 48 pages         ; Note 48 for SAVE later
+
+
+4.      A> DDT 64CPM5/5.COM             ; Load Standard Image
+        DDT VERS 2.2
+        NEXT  PC
+        3100 0100
+        -ISYSBIOS.HEX                   ; Set up FCB for read
+        -R4180                          ; Read with offset 4180 hex
+        -G0                             ; Exit DDT
+
+5.      A> SAVE 48 MY64CPM.COM          ; 48 from step #3
+
+6.      A> SYSGEN MY64CPM.COM           ; SYSGEN using MY64CPM.COM
+
+        (answer questions as appropriate for SYSGEN)
+
+
+FORMAT.COM Patches:
+-------------------
+
+To support 40 tracks, I modified my FORMAT.COM program using
+DDT.  Here are the patch locations that I found useful. Your
+mileage may vary:
+
+        Loc.    Was     Patched Comment
+        ------  ---     ------- ----------------------------
+        01C3+1  23h     28h     35 -> 40 tracks
+        0218+1  46h     50h     70 -> 80 tracks (both sides)
+        0437+1  23h     28h     35 -> 40 tracks
+
+After  patching  for  40  tracks,  the  program  is 40 track
+capable. However, when formatting tracks 35 to 39, the track
+number  will not display correctly.  To fix this you need to
+add some ASCII literal data starting at location:
+
+        04EE    db      '53'    ; 35
+                db      '63'    ; 36
+                ...
+                db      '93'    ; 39
+
+Notice  how the digits are reversed.  If these offsets don't
+make  sense, then  you've  probably  got a different or more
+modern FORMAT.COM.
+
+My FORMAT.COM defaulted to drive B:. To change drives, there
+are a lot of:
+
+        LXI     B,xx01h         ; disk function on B:
+
+that can be changed to:
+
+        LXI     B,xx00h         ; disk function on A:
+
+There   is  also  one  "MVI  C,01h"  that  also  would  need
+adjustment for  different  drive numbers.  I didn't note all
+the addresses for these.
+
+Sign-Off:
+---------
+
+Well,  I  hope  this  mini-series  has  been  both  fun  and
+educational.  I  also  hope  that  you SuperBrain owners out
+there  will  dust off  those  units  and  start  doing  some
+disassembling and experimenting.
+
+I also want to say that any publication, magazine, newspaper
+or  electronic  media  is  free to  reproduce this series of
+articles  without  my  permission. My aim  here is simply to
+share this information with others.
+
+I  find it interesting to monkey with these today.  13 years
+ago, I remember seeing one for the first time.  I wanted one
+real bad back then. However, I had to do without. Many years
+later,  I bought  4  for $10 a piece at a Ham-fest! I had to
+have  them,  because  I remember  wanting one so badly years
+ago.
+
+Even  though  my  (still  lowly)  286  PC is infinitely more
+useful  to  me than my  SuperBrain, its nice to power on the
+"Super" for a  diversion.  Its  also  a challenge  to make a
+limited amount of hardware perform useful services.  Finally
+its  just  plain nostalgic.  There  really  can  be  no more
+justification than that.
+
+--------------------
+Warren W. Gay VE3WWG            John Coutts Library Services Limited            
+wwg@coutts.UUCP                 Niagara Falls, Ontario, Canada
